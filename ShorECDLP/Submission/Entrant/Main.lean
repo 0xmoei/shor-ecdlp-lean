@@ -1,4 +1,5 @@
 import ShorECDLP.Submission.Entrant.Corners
+import ShorECDLP.Submission.Entrant.TrimmedSign
 
 section
 set_option maxRecDepth 30000
@@ -8876,8 +8877,9 @@ theorem pointFiniteSignValue (P : ECDSAAdd.Secp256k1.Point) (sign : Bool) :
     have hlt : ECDSAAdd.p - pointY (.some hc : ECDSAAdd.Secp256k1.Point) < ECDSAAdd.p := by omega
     simp [pointFinite, ECDSAAdd.Secp256k1.coordinates, Nat.mod_eq_of_lt hlt]
 
-def fastWindowSignProgram : Program := finiteSignMeasured (negateYLayout streamLayout) 870 838
-  streamLayout.core.generic ECDSAAdd.p
+def fastWindowSignProgram : Program :=
+  finiteSignFlag 870 838 streamLayout.core.generic ++ TrimmedSign.reflection ++
+    finiteSignErase 870 838 streamLayout.core.generic
 
 attribute [local irreducible] ECDSAAdd.run ECDSAAdd.regValue
 
@@ -8920,7 +8922,26 @@ theorem fastWindowSignProgram_point (st : State) (P : ECDSAAdd.Secp256k1.Point)
     (by decide) signNe infNe (by rw [word]; decide +kernel) (by rw [word]; decide +kernel)
     st genFalse hY ((regValue_zero _ _).mpr (fun q hq => clean q (by simp [hq])))
     (clean _ (by simp)) (clean _ (by simp)) m
-  change (run fastWindowSignProgram m st).phase = _ ∧ _ at h
+  have trim : run fastWindowSignProgram m st =
+      run (finiteSignMeasured K 870 838 L.core.generic ECDSAAdd.p) m st := by
+    have incl : TrimmedSign.cleanWires ⊆ K.work ++ [K.cin, K.zero] := by decide +kernel
+    have away : ∀ w ∈ TrimmedSign.cleanWires,
+        w ∉ ECDSAAdd.wires (finiteSignFlag 870 838 L.core.generic) := by decide +kernel
+    have cleanFlag (records : List Bool) : ∀ w ∈ TrimmedSign.cleanWires,
+        (run (finiteSignFlag 870 838 L.core.generic) records st).basis w = false := by
+      intro w hw
+      rw [run_preserves_outside _ _ _ _ (away w hw)]
+      exact clean w (incl hw)
+    have counts : measurementCount TrimmedSign.reflection =
+        measurementCount (K.reflection L.core.generic (ECDSAAdd.p + 1)) := by
+      rw [TrimmedSign.reflection_counts.2,
+        (K.reflection_counts L.core.generic (ECDSAAdd.p + 1) width.2
+          (by rw [width.1]; decide)).2, width.1]
+    simp only [fastWindowSignProgram, finiteSignMeasured, run_append, run_take,
+      measurementCount_append, counts]
+    rw [TrimmedSign.reflection_run _ _ (cleanFlag _)]
+    rfl
+  rw [← trim] at h
   rw [word] at h
   have hyOut : ECDSAAdd.regValue (List.range' 580 256) (run fastWindowSignProgram m st).basis =
       (if st.basis 870 then ECDSAAdd.regValue (List.range' 580 256) st.basis else
@@ -8961,11 +8982,11 @@ theorem finiteSignMeasured_counts (K : NegLayout) (sign inf flag p : Nat)
   simp [finiteSignMeasured, finiteSignFlag, finiteSignErase, chainErase,
     toffoliCount_append, measurementCount_append, toffoliCount, measurementCount, h.1, h.2, hn]
 
-theorem fastWindowSign_counts : ECDSAAdd.toffoliCount fastWindowSignProgram = 256 ∧
+theorem fastWindowSign_counts : ECDSAAdd.toffoliCount fastWindowSignProgram = 252 ∧
     ECDSAAdd.measurementCount fastWindowSignProgram = 256 := by
-  have width := negateYLayout_widths streamLayout streamLayout_widths
-  exact finiteSignMeasured_counts (negateYLayout streamLayout) 870 838 streamLayout.core.generic
-    ECDSAAdd.p width.2 width.1
+  simp [fastWindowSignProgram, finiteSignFlag, finiteSignErase, chainErase,
+    toffoliCount_append, measurementCount_append, toffoliCount, measurementCount,
+    TrimmedSign.reflection_counts.1, TrimmedSign.reflection_counts.2]
 
 open Quantum Challenge ShorECDLP.Secp256k1
 open Paper2607_13816 Paper2607_13816.ChallengeMigration
@@ -9015,10 +9036,9 @@ theorem finiteSignMeasured_physical (K : NegLayout) (sign inf flag p : Nat)
     K.reflection_physical flag (p+1) hn⟩, finiteSignErase_physical sign inf flag⟩
 
 theorem fastWindowSign_physical : GatePhysical fastWindowSignProgram := by
-  unfold fastWindowSignProgram
-  exact finiteSignMeasured_physical (negateYLayout streamLayout) 870 838 streamLayout.core.generic ECDSAAdd.p
-    (negateYLayout_nodup_generic streamLayout streamLayout_widths streamLayout_nodup)
-    (by decide +kernel) (by decide +kernel)
+  simp only [fastWindowSignProgram, gatePhysical_append]
+  exact ⟨⟨finiteSignFlag_physical _ _ _ (by decide +kernel) (by decide +kernel),
+    TrimmedSign.reflection_physical⟩, finiteSignErase_physical _ _ _⟩
 
 
 theorem finiteSignMeasured_slots (K : NegLayout) (sign inf flag p : Nat) (width : K.word.length = 256) :
@@ -9031,11 +9051,17 @@ theorem finiteSignMeasured_slots (K : NegLayout) (sign inf flag p : Nat) (width 
     ECDSAAdd.Baselines.gateSlots_nil, ECDSAAdd.Challenge.instructionSlots, List.length_nil, List.length_cons]
   omega
 
-theorem fastWindowSign_slots : ECDSAAdd.Challenge.gateSlots fastWindowSignProgram ≤ 100000 :=
-  finiteSignMeasured_slots _ _ _ _ _ (negateYLayout_widths streamLayout streamLayout_widths).1
+theorem fastWindowSign_slots : ECDSAAdd.Challenge.gateSlots fastWindowSignProgram ≤ 100000 := by
+  have old := finiteSignMeasured_slots (negateYLayout streamLayout) 870 838
+    streamLayout.core.generic ECDSAAdd.p (negateYLayout_widths streamLayout streamLayout_widths).1
+  have smaller : ECDSAAdd.Challenge.gateSlots TrimmedSign.reflection ≤
+      ECDSAAdd.Challenge.gateSlots ((negateYLayout streamLayout).reflection
+        streamLayout.core.generic (ECDSAAdd.p + 1)) := TrimmedSign.reflection_slots
+  simp only [fastWindowSignProgram, finiteSignMeasured, ECDSAAdd.Challenge.gateSlots_append] at old ⊢
+  omega
 
 theorem fastWindowSign_normalized_counts :
-    ECDSAAdd.toffoliCount (ECDSAAdd.Baselines.normalizeProgram fastWindowSignProgram) ≤ 256 ∧
+    ECDSAAdd.toffoliCount (ECDSAAdd.Baselines.normalizeProgram fastWindowSignProgram) ≤ 252 ∧
       ECDSAAdd.measurementCount (ECDSAAdd.Baselines.normalizeProgram fastWindowSignProgram) = 256 := by
   exact ⟨(ECDSAAdd.Baselines.normalize_toffoli fastWindowSignProgram).trans fastWindowSign_counts.1.le,
     (ECDSAAdd.Baselines.normalize_measurements fastWindowSignProgram).trans fastWindowSign_counts.2⟩
@@ -9180,7 +9206,12 @@ theorem nFastProgram_source (start : Nat) : ChallengeMigration.straightWires (nF
   have hs := finiteSignMeasured_support (negateYLayout streamLayout) 870 838 streamLayout.core.generic ECDSAAdd.p
   have cover : 870 :: 838 :: (negateYLayout streamLayout).wires streamLayout.core.generic ⊆ sourceSupport := by
     apply source_of_bounds; decide +kernel
-  exact hs.trans (fun w hw => List.mem_toFinset.mpr (cover (List.mem_toFinset.mp hw)))
+  have sub : ECDSAAdd.wires fastWindowSignProgram ⊆ ECDSAAdd.wires
+      (finiteSignMeasured (negateYLayout streamLayout) 870 838 streamLayout.core.generic ECDSAAdd.p) := by
+    simp only [fastWindowSignProgram, finiteSignMeasured, ECDSAAdd.wires_append]
+    exact Finset.union_subset_union (Finset.union_subset_union (fun _ h => h) TrimmedSign.reflection_wires)
+      (fun _ h => h)
+  exact sub.trans (hs.trans (fun w hw => List.mem_toFinset.mpr (cover (List.mem_toFinset.mp hw))))
 
 attribute [local irreducible] widthAddProgram compile Bridge.translate ECDSAAdd.Baselines.normalizeProgram
   ECDSAAdd.toffoliCount literalToffolis normalizeW Nat.add Nat.mul
@@ -9565,7 +9596,7 @@ theorem fastCompactProgram_coherent (coeffs : Fin 32768 → PointCoeff) (Q : Sec
   exact he
 
 theorem fastCount_upper : 2 * ECDSAAdd.toffoliCount (ECDSAAdd.Baselines.normalizeProgram WEX.fastWindowSignProgram) +
-    ccx row ≤ 2238763 := by
+    ccx row ≤ 2238755 := by
   have ha := WEX.literalToffolis_normalize (clearReferenceRow probeRows)
   have hc := (finite23_literal_counts streamLayout probeRows).1.trans
     (tight_finite_literal_counts streamLayout streamLayout_widths streamLayout_nodup probeRows).1
@@ -9581,7 +9612,7 @@ theorem fastCount_upper : 2 * ECDSAAdd.toffoliCount (ECDSAAdd.Baselines.normaliz
 
 def fastNarrow : ModNarrow WEXUnlookup.compactBody 13 where
   records := 1634066
-  tBound := 15671341
+  tBound := 15671285
   credit := 2 * ECDSAAdd.toffoliCount (ECDSAAdd.Baselines.normalizeProgram WEX.fastWindowSignProgram) + ccx row
   program := fastCompactProgram
   coherent := by
@@ -9778,7 +9809,7 @@ theorem fastCompactProgram_coherent (coeffs : Fin 32768 → PointCoeff) (Q : Sec
   exact he
 
 theorem fastCount_upper : 2 * ECDSAAdd.toffoliCount (ECDSAAdd.Baselines.normalizeProgram WEX.fastWindowSignProgram) +
-    ccx row ≤ 2312875 := by
+    ccx row ≤ 2312867 := by
   have ha := WEX.literalToffolis_normalize (clearReferenceRow probeRows)
   have hc := (finite23_literal_counts streamLayout probeRows).1.trans
     (tight_finite_literal_counts streamLayout streamLayout_widths streamLayout_nodup probeRows).1
@@ -9794,7 +9825,7 @@ theorem fastCount_upper : 2 * ECDSAAdd.toffoliCount (ECDSAAdd.Baselines.normaliz
 
 def fastNarrow : ModNarrow WEXUnlookup.compactBody 14 where
   records := 1708178
-  tBound := 16190125
+  tBound := 16190069
   credit := 2 * ECDSAAdd.toffoliCount (ECDSAAdd.Baselines.normalizeProgram WEX.fastWindowSignProgram) + ccx row
   program := fastCompactProgram
   coherent := by
@@ -10000,7 +10031,7 @@ theorem fastCompactProgram_coherent (coeffs : Fin 32768 → PointCoeff) (Q : Sec
   exact he
 
 theorem fastCount_upper : 2 * ECDSAAdd.toffoliCount (ECDSAAdd.Baselines.normalizeProgram WEX.fastWindowSignProgram) +
-    ccx row ≤ 2461099 := by
+    ccx row ≤ 2461091 := by
   have ha := WEX.literalToffolis_normalize (clearReferenceRow probeRows)
   have hc := (finite23_literal_counts streamLayout probeRows).1.trans
     (tight_finite_literal_counts streamLayout streamLayout_widths streamLayout_nodup probeRows).1
@@ -10016,7 +10047,7 @@ theorem fastCount_upper : 2 * ECDSAAdd.toffoliCount (ECDSAAdd.Baselines.normaliz
 
 def fastNarrow : ModNarrow WEXUnlookup.compactBody 15 where
   records := 1856402
-  tBound := 17227693
+  tBound := 17227637
   credit := 2 * ECDSAAdd.toffoliCount (ECDSAAdd.Baselines.normalizeProgram WEX.fastWindowSignProgram) + ccx row
   program := fastCompactProgram
   coherent := by
@@ -10074,12 +10105,12 @@ theorem matched_fast_clear_certificate (n14 : ModNarrow body 13) (n15 : ModNarro
     (hSupport : ledger.support.length ≤ 1634) (hSlot : body.slotBound ≤ 3000000000)
     (hR15 : n15.records ≤ 1708178) (hR16 : n16.records ≤ 1856402)
     (hReset : body.reset.length ≤ 854)
-    (hT15 : n15.tBound ≤ 16190125) (hT16 : n16.tBound ≤ 17227693)
-    (hC15 : n15.credit ≤ 2312875) (hC16 : n16.credit ≤ 2461099)
+    (hT15 : n15.tBound ≤ 16190069) (hT16 : n16.tBound ≤ 17227637)
+    (hC15 : n15.credit ≤ 2312867) (hC16 : n16.credit ≤ 2461091)
     (hq : (1938 : Wire) ∉ ledger.support) (hy : (1939 : Wire) ∉ 1938 :: ledger.support) :
     letI : Programs body := triPrograms n14 n15 n16
     Certificate officialLimits (lowerLayout 1938 entry layout) (fourEntry 1938 1939 entry)
-      ⟨1636, 280731949, 543906879⟩ := by
+      ⟨1636, 280731021, 543906879⟩ := by
   letI : Programs body := triPrograms n14 n15 n16
   have hwin : windowSlots ≤ 3000000000 := max_le le_rfl hSlot
   have hbaseS : 32 * windowSlots + 176382 ≤ officialLimits.gateSlots := by
@@ -10111,7 +10142,7 @@ theorem matched_fast_clear_certificate (n14 : ModNarrow body 13) (n15 : ModNarro
   apply fastClearWiden raw
   · change ledger.support.length + 2 ≤ 1636
     omega
-  · change 4 * (131071 + 20 * n16.credit + 9 * n15.credit) + 56244 + 1 ≤ 280731949
+  · change 4 * (131071 + 20 * n16.credit + 9 * n15.credit) + 56244 + 1 ≤ 280731021
     omega
   · change entry.finalCursor + added entry.program ≤ 543906879
     omega
@@ -10142,11 +10173,11 @@ theorem n14_records : narrow14.records ≤ 1708178 := by
   exact le_rfl
 theorem n15_records : narrow15.records ≤ 1856402 := by
   exact le_rfl
-theorem n13_cost : narrow13.tBound ≤ 15671341 := by
+theorem n13_cost : narrow13.tBound ≤ 15671285 := by
   exact le_rfl
-theorem n14_cost : narrow14.tBound ≤ 16190125 := by
+theorem n14_cost : narrow14.tBound ≤ 16190069 := by
   exact le_rfl
-theorem n15_cost : narrow15.tBound ≤ 17227693 := by
+theorem n15_cost : narrow15.tBound ≤ 17227637 := by
   exact le_rfl
 
 attribute [local irreducible] narrow13 narrow14 narrow15
@@ -10159,28 +10190,28 @@ local instance resourcesInstance : Single.ProducerResources bodyInstance :=
 local instance coverInstance : SupportCover bodyInstance resourcesInstance := ⟨by intro w hw; exact hw⟩
 local instance programInstance : Programs bodyInstance := triPrograms narrow13 narrow14 narrow15
 
-private theorem count13_bound (t c : Nat) (he : t = 7*c) (hb : t ≤ 15671341) :
-    c ≤ 2238763 := by omega
-private theorem count14_bound (t c : Nat) (he : t = 7*c) (hb : t ≤ 16190125) :
-    c ≤ 2312875 := by omega
-private theorem count15_bound (t c : Nat) (he : t = 7*c) (hb : t ≤ 17227693) :
-    c ≤ 2461099 := by omega
+private theorem count13_bound (t c : Nat) (he : t = 7*c) (hb : t ≤ 15671285) :
+    c ≤ 2238755 := by omega
+private theorem count14_bound (t c : Nat) (he : t = 7*c) (hb : t ≤ 16190069) :
+    c ≤ 2312867 := by omega
+private theorem count15_bound (t c : Nat) (he : t = 7*c) (hb : t ≤ 17227637) :
+    c ≤ 2461091 := by omega
 
-theorem n13_credit : narrow13.credit ≤ 2238763 := by
+theorem n13_credit : narrow13.credit ≤ 2238755 := by
   let read : ConstantBit 32768 → Bool := fun _ => false
   have ht := narrow13.tCount 0 read Fin.elim0
   have he := WEXCredit.exact_t (narrow13.program 0) (narrow13.zero 0) read Fin.elim0
   have hc := narrow13.count_eq 0
   have he' := he.trans (congrArg (fun k : Nat => 7*k) hc)
   exact count13_bound _ _ he' (ht.trans n13_cost)
-theorem n14_credit : narrow14.credit ≤ 2312875 := by
+theorem n14_credit : narrow14.credit ≤ 2312867 := by
   let read : ConstantBit 32768 → Bool := fun _ => false
   have ht := narrow14.tCount 0 read Fin.elim0
   have he := WEXCredit.exact_t (narrow14.program 0) (narrow14.zero 0) read Fin.elim0
   have hc := narrow14.count_eq 0
   have he' := he.trans (congrArg (fun k : Nat => 7*k) hc)
   exact count14_bound _ _ he' (ht.trans n14_cost)
-theorem n15_credit : narrow15.credit ≤ 2461099 := by
+theorem n15_credit : narrow15.credit ≤ 2461091 := by
   let read : ConstantBit 32768 → Bool := fun _ => false
   have ht := narrow15.tCount 0 read Fin.elim0
   have he := WEXCredit.exact_t (narrow15.program 0) (narrow15.zero 0) read Fin.elim0
@@ -10190,7 +10221,7 @@ theorem n15_credit : narrow15.credit ≤ 2461099 := by
 
 def entry : StraightEntry := fourEntry 1938 1939 Flexible.entry
 def layout : DecodeLayout := lowerLayout 1938 Flexible.entry Flexible.layout
-def bounds : Bounds := ⟨1636, 280731949, 543906879⟩
+def bounds : Bounds := ⟨1636, 280731021, 543906879⟩
 
 theorem certificate : Certificate officialLimits layout entry bounds := by
   apply @matched_fast_clear_certificate bodyInstance resourcesInstance coverInstance narrow13 narrow14 narrow15
@@ -10216,7 +10247,7 @@ end ShorECDLP.Entrant.Schedule29Seventeen247.Flexible.FastClearFinal
 namespace ShorECDLP.Entrant
 open Challenge
 
-def bounds : Bounds := ⟨1636,280731949,543906879⟩
+def bounds : Bounds := ⟨1636,280731021,543906879⟩
 noncomputable section
 def entry : StraightEntry := Schedule29Seventeen247.Flexible.FastClearFinal.entry
 def layout : DecodeLayout := Schedule29Seventeen247.Flexible.FastClearFinal.layout
