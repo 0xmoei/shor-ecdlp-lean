@@ -79,7 +79,8 @@ theorem portRow6_placed :
   intro i hi
   rcases portRow6_member probeRows i hi with h | rfl
   · exact portRow5_placed i h
-  · exact portRow5_placed _ (portRow6_none_mem probeRows)
+  · have h0 := portRow5_placed _ (portRow6_none_mem probeRows)
+    exact h0
 
 theorem portRow6_physical : ∀ p, WInstr.literal p ∈ portRowCode6 probeRows → GatePhysical p := by
   intro p hp
@@ -127,25 +128,31 @@ theorem portRow6_sourceLookupOK : (normalizeW (portRowCode6 probeRows)).all sour
       revert h0
       simp [normalizeWInstr, sourceLookupOK, windowRoot_oldWork]
 
-theorem portRow6_literal_slots_bound : literalSlotSum (portRowCode6 probeRows) ≤ 50021565 :=
-  (portRow6_measures probeRows).2.2.2.1 ▸ portRow5_literal_slots_bound
+theorem portRow6_literal_slots_bound : literalSlotSum (portRowCode6 probeRows) ≤ 50021565 := by
+  have h := (portRow6_measures probeRows).2.2.2.1
+  have h5 := portRow5_literal_slots_bound
+  omega
 
-theorem portRow6_portTotal : portTotal (portRowCode6 probeRows) ≤ 20000 :=
-  (portRow6_measures probeRows).2.2.2.2.1 ▸ portRow5_portTotal
+theorem portRow6_portTotal : portTotal (portRowCode6 probeRows) ≤ 20000 := by
+  have h := (portRow6_measures probeRows).2.2.2.2.1
+  have h5 := portRow5_portTotal
+  omega
 
 theorem portRow6_count_upper (k : Nat) :
     2 * ECDSAAdd.toffoliCount (ECDSAAdd.Baselines.normalizeProgram windowSignProgram) +
       literalToffolis (normalizeW (portRowCode6 probeRows)) + 15 * (2^k-1) ≤
       2165436 + 15 * (2^k-1) := by
-  rw [(portRow6_measures probeRows).2.2.2.2.2]
-  exact portRow5_count_upper k
+  have h := (portRow6_measures probeRows).2.2.2.2.2
+  have h5 := portRow5_count_upper k
+  omega
 
 theorem portRow6_width_placed (k : Nat) (hk : k ≤ 15) :
     ∀ i ∈ portRowCode6 probeRows, PlacedPair (widthBits k) windowPaths windowRoot i := by
   intro i hi
   rcases portRow6_member probeRows i hi with h | rfl
   · exact portRow5_width_placed k hk i h
-  · exact portRow5_width_placed k hk _ (portRow6_none_mem probeRows)
+  · have h0 := portRow5_width_placed k hk _ (portRow6_none_mem probeRows)
+    exact h0
 
 theorem portRow6_width_records (k : Nat) (hk : k ≤ 15) :
     codeRecords (widthBits k) windowPaths windowRoot (normalizeW (portRowCode6 probeRows)) =
@@ -194,10 +201,11 @@ theorem root_preserves {n} (read : ConstantBit n → Bool) (bits paths : List Wi
       simp only [List.take_append_drop] at hspec
       rw [WInstr.specialize,hspec]
       apply ih ht
-      change tableXorState (portMask read (ps.drop 258) a) (st.basis (lookupRoot root control))
-        (tableXorState (portMask read (ps.take 258) a) (st.basis (lookupRoot root control)) st.basis) root = true
-      rw [tableXorState_outside _ _ _ _ (fun h => hrb (tableBitsMask_subset _ _ h)),
-        tableXorState_outside _ _ _ _ (fun h => hra (tableBitsMask_subset _ _ h))]
+      change Paper2607_13816.tableXorState (portMask read (ps.drop 258) a) (st.basis (lookupRoot root control))
+        (Paper2607_13816.tableXorState (portMask read (ps.take 258) a) (st.basis (lookupRoot root control)) st.basis) root = true
+      have hm2 : root ∉ portMask read (ps.drop 258) a := fun h => hrb (Paper2607_13816.tableBitsMask_subset _ _ h)
+      have hm1 : root ∉ portMask read (ps.take 258) a := fun h => hra (Paper2607_13816.tableBitsMask_subset _ _ h)
+      rw [Paper2607_13816.tableXorState_outside _ _ _ _ hm2, Paper2607_13816.tableXorState_outside _ _ _ _ hm1]
       exact hr
 
 theorem rooted_lookup_run (read : ConstantBit 32768 → Bool) (ports : List (LookupPort 32768)) (a : Nat)
@@ -307,9 +315,12 @@ theorem scrD_clean (read : ConstantBit 32768 → Bool) (a : Nat) (m : List Bool)
   simp only [sfxMidF, scrDMiddle, specialize_append, Tmpl.instantiate_append, specialize_literal,
     Tmpl.instantiate_lit, scr_chain_inst, scrECorners_inst, List.append_assoc]
   simp only [List.append_assoc] at hsw
-  rw [hsw]
-  exact (h.step m t hs).2
+  with_reducible rw [hsw]
+  have hc := (h.step m t hs).2
+  simp only [List.append_assoc] at hc
+  exact hc
 
+attribute [local irreducible] streamLayout ECDSAAdd.regValue ECDSAAdd.run in
 /-- After the common head of the rooted row, the output scratch word is clean. -/
 theorem row6Head_scr (read : ConstantBit 32768 → Bool) (rows : Nat → Fin 32768) (address : Nat)
     (R : Point) {cx cy : ECDSAAdd.Fp} (hc : curve.toAffine.Nonsingular cx cy)
@@ -385,7 +396,7 @@ theorem row6Head_scr (read : ConstantBit 32768 → Bool) (rows : Nat → Fin 327
     apply portPrefix4_eq3 read rows address n
     change flipInfinity s windowRoot = true
     simpa [flipInfinity, ECDSAAdd.writeBit, Function.update, windowRoot] using hroot
-  rw [hrun]
+  with_reducible rw [hrun]
   exact hscr k
 
 end
@@ -498,7 +509,7 @@ theorem clearReferenceRow_run (coeffs : Fin 32768 → PointCoeff) (Q : Point) (h
     ECDSAAdd.run ((specialize (normalizeW (clearReferenceRow probeRows))
       (tableAddressValue windowBits s)).instantiate (readConstant coeffs Q)) m ⟨false,s⟩ =
         ⟨false,rowPointState coeffs Q s⟩ := by
-  rw [specialize_normalize_run, portRow6_run_eq _ _ _ _ hs.2.2, ← specialize_normalize_run]
+  with_reducible rw [specialize_normalize_run, portRow6_run_eq _ _ _ _ hs.2.2, ← specialize_normalize_run]
   exact portRow5_transport _ coeffs Q hQ hn s hs _
     (fun m => (portRow4_run_same _ coeffs Q hQ hn s hs m).trans (rowAddCode_run coeffs Q hQ hn s hs m)) m
 
@@ -507,7 +518,7 @@ theorem clearReferenceRow_run_any (a : Nat) (coeffs : Fin 32768 → PointCoeff) 
     ECDSAAdd.run ((specialize (normalizeW (clearReferenceRow probeRows))
       a).instantiate (readConstant coeffs Q)) m ⟨false,s⟩ =
         ⟨false,pointWrite (inputPoint s + Single.Physical.tablePoint coeffs Q a) s⟩ := by
-  rw [specialize_normalize_run, portRow6_run_eq _ _ _ _ hs.2.2, ← specialize_normalize_run]
+  with_reducible rw [specialize_normalize_run, portRow6_run_eq _ _ _ _ hs.2.2, ← specialize_normalize_run]
   exact portRow5_transport a coeffs Q hQ hn s hs _
     (fun m => (portRow4_run_same a coeffs Q hQ hn s hs m).trans (rowAddCode_run_any a coeffs Q hQ hn s hs m)) m
 
