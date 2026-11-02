@@ -509,7 +509,10 @@ theorem clearReferenceRow_run (coeffs : Fin 32768 → PointCoeff) (Q : Point) (h
     ECDSAAdd.run ((specialize (normalizeW (clearReferenceRow probeRows))
       (tableAddressValue windowBits s)).instantiate (readConstant coeffs Q)) m ⟨false,s⟩ =
         ⟨false,rowPointState coeffs Q s⟩ := by
-  with_reducible rw [specialize_normalize_run, portRow6_run_eq _ _ _ _ hs.2.2, ← specialize_normalize_run]
+  have hr : s windowRoot = true := by unfold liveReady at hs; exact hs.2.2
+  have e : clearReferenceRow probeRows = portRowCode6 probeRows := rfl
+  rw [e]
+  with_reducible rw [specialize_normalize_run, portRow6_run_eq _ _ _ _ hr, ← specialize_normalize_run]
   exact portRow5_transport _ coeffs Q hQ hn s hs _
     (fun m => (portRow4_run_same _ coeffs Q hQ hn s hs m).trans (rowAddCode_run coeffs Q hQ hn s hs m)) m
 
@@ -518,7 +521,10 @@ theorem clearReferenceRow_run_any (a : Nat) (coeffs : Fin 32768 → PointCoeff) 
     ECDSAAdd.run ((specialize (normalizeW (clearReferenceRow probeRows))
       a).instantiate (readConstant coeffs Q)) m ⟨false,s⟩ =
         ⟨false,pointWrite (inputPoint s + Single.Physical.tablePoint coeffs Q a) s⟩ := by
-  with_reducible rw [specialize_normalize_run, portRow6_run_eq _ _ _ _ hs.2.2, ← specialize_normalize_run]
+  have hr : s windowRoot = true := by unfold liveReady at hs; exact hs.2.2
+  have e : clearReferenceRow probeRows = portRowCode6 probeRows := rfl
+  rw [e]
+  with_reducible rw [specialize_normalize_run, portRow6_run_eq _ _ _ _ hr, ← specialize_normalize_run]
   exact portRow5_transport a coeffs Q hQ hn s hs _
     (fun m => (portRow4_run_same a coeffs Q hQ hn s hs m).trans (rowAddCode_run_any a coeffs Q hQ hn s hs m)) m
 
@@ -1020,7 +1026,7 @@ theorem kind_facts {n} (site : MaskedSite n) (hk : SiteKind site) :
   · have hc : clearHot site = scrSiteHot := by
       unfold clearHot
       rw [hg,if_pos rfl]
-    have hs : scratch site = 14373 := by rw [scratch,ht,scrAllWires_eq,List.headD_append]; exact scrWires_head
+    have hs : scratch site = 14373 := by rw [scratch,ht,scrAllWires_eq,scrWires_eq]; rfl
     rw [hc,hs]
     refine ⟨by rw [ht]; exact scrAllWires_nodup,?_,?_,?_,?_,Or.inr hg,?_⟩
     · intro w hw
@@ -1767,7 +1773,7 @@ theorem safe_tail_masked {n} (read : ConstantBit n → Bool) (address : Nat) (pr
   induction pre generalizing st with
   | nil =>
     refine ⟨?_,fun _ _ => ⟨True.intro,fun _ _ => ⟨True.intro,fun _ _ => True.intro⟩⟩⟩
-    have h0 := hS [] (by simp)
+    have h0 := hS [] (by simp [reference,erase,specialize,ECDSAAdd.ShorPort.Tmpl.instantiate,ECDSAAdd.measurementCount])
     simpa [reference,erase,specialize,ECDSAAdd.ShorPort.Tmpl.instantiate,ECDSAAdd.run] using h0
   | cons b pre ih =>
     simp only [List.cons_append,Safe] at h ⊢
